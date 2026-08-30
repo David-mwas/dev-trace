@@ -21,24 +21,22 @@ app.post('/api/orders', (req, res) => {
 
 app.post('/api/payment', async (req, res, next) => {
     try {
-        const traceCtx = (req as any).__devtrace || {};
-        const traceId = traceCtx.traceId;
-        const parentSpanId = traceCtx.spanId;
-
         // Step 1: Auth (Simulated)
-        await devtrace.trace('Auth middleware (Simulated)', { traceId, parentSpanId });
-        await new Promise(r => setTimeout(r, 50));
+        await devtrace.withSpan('Auth middleware', async () => {
+            await new Promise(r => setTimeout(r, 50));
+        });
         
         // Step 2: Customer lookup (Simulated)
-        await devtrace.trace('Customer lookup (Simulated)', { traceId, parentSpanId });
-        await new Promise(r => setTimeout(r, 80));
+        await devtrace.withSpan('Customer lookup', async () => {
+            await new Promise(r => setTimeout(r, 80));
+        });
 
         // Step 3: Database insertion (Simulated)
-        await devtrace.trace('INSERT INTO payments (Simulated)', { traceId, parentSpanId });
-        await new Promise(r => setTimeout(r, 20));
-        
-        // Step 4: Deliberate Failure!
-        throw new Error("PostgreSQL constraint violation: payment_customer_id_fkey");
+        await devtrace.withSpan('INSERT INTO payments', async () => {
+            await new Promise(r => setTimeout(r, 20));
+            // Step 4: Deliberate Failure!
+            throw new Error("PostgreSQL constraint violation: payment_customer_id_fkey");
+        });
     } catch (error) {
         next(error); // Pass to error handler
     }

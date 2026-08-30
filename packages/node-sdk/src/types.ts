@@ -23,6 +23,7 @@ export interface Event {
     trace_id?: string;
     span_id?: string;
     parent_span_id?: string;
+    duration_ms?: number;
     payload?: string;
     metadata?: string;
     exceptions?: Exception[];
@@ -45,4 +46,6 @@ export interface LogOptions {
     traceId?: string;
     spanId?: string;
     parentSpanId?: string;
+    timestamp?: number;
+    durationMs?: number;
 }

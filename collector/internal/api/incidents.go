@@ -34,6 +34,11 @@ func (s *EventStore) HandleListIncidents(w http.ResponseWriter, r *http.Request)
 		incidents = append(incidents, i)
 	}
 
+	if err := rows.Err(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	if incidents == nil {
 		incidents = []models.Incident{}
 	}

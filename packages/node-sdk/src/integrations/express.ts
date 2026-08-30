@@ -33,11 +33,12 @@ export function devtraceExpressMiddleware(client: DevTrace) {
             client.trace(`${req.method} ${req.path}`, {
                 traceId,
                 spanId,
+                timestamp: startTime,
+                durationMs,
                 metadata: {
                     method: req.method,
                     path: req.path,
                     status,
-                    duration_ms: durationMs,
                     query: req.query,
                 },
                 severity: isError ? 'error' : 'info',
@@ -46,7 +47,9 @@ export function devtraceExpressMiddleware(client: DevTrace) {
             return originalEnd(...args);
         };
 
-        next();
+        client.runWithTrace(traceId, spanId, () => {
+            next();
+        });
     };
 }
 

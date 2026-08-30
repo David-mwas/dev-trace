@@ -37,7 +37,13 @@ function buildTraceGroups(events: Event[]): TraceGroup[] {
         // Sort by timestamp
         const sorted = [...evts].sort((a, b) => a.timestamp - b.timestamp);
         const startTime = sorted[0].timestamp;
-        const endTime = sorted[sorted.length - 1].timestamp;
+        
+        let maxEndTime = startTime;
+        sorted.forEach(e => {
+            const end = e.timestamp + (e.duration_ms || 20);
+            if (end > maxEndTime) maxEndTime = end;
+        });
+        const endTime = maxEndTime;
         const totalDuration = Math.max(endTime - startTime, 1);
 
         // Build span tree
@@ -61,11 +67,10 @@ function buildTraceGroups(events: Event[]): TraceGroup[] {
             }
         });
 
-        // Calculate widths (based on duration or position)
-        spans.forEach((span, i) => {
-            const nextTs = i < spans.length - 1 ? spans[i + 1].event.timestamp : endTime + 100;
-            const dur = nextTs - span.event.timestamp;
-            span.width = Math.max((dur / totalDuration) * 100, 2);
+        // Calculate widths
+        spans.forEach((span) => {
+            const dur = span.event.duration_ms || 20;
+            span.width = Math.max((dur / totalDuration) * 100, 1);
         });
 
         return {

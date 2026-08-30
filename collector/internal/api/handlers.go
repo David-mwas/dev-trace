@@ -87,6 +87,9 @@ func (s *EventStore) HandleAnalytics(w http.ResponseWriter, r *http.Request) {
 			case "trace": hourMap[hr].Traces += cnt
 			}
 		}
+		if err := rows.Err(); err != nil {
+			log.Printf("Error iterating over hourly rows: %v", err)
+		}
 		for _, pt := range hourMap {
 			data.Hourly = append(data.Hourly, *pt)
 		}
@@ -109,6 +112,9 @@ func (s *EventStore) HandleAnalytics(w http.ResponseWriter, r *http.Request) {
 				data.Services = append(data.Services, sc)
 			}
 		}
+		if err := svcRows.Err(); err != nil {
+			log.Printf("Error iterating over service rows: %v", err)
+		}
 	}
 
 	// ── Heatmap (all time, by hour of day) ───────────────────────────────────
@@ -126,6 +132,9 @@ func (s *EventStore) HandleAnalytics(w http.ResponseWriter, r *http.Request) {
 			if err := hmRows.Scan(&hr, &cnt); err == nil && hr >= 0 && hr < 24 {
 				data.Heatmap[hr].Count = cnt
 			}
+		}
+		if err := hmRows.Err(); err != nil {
+			log.Printf("Error iterating over heatmap rows: %v", err)
 		}
 	}
 
@@ -231,13 +240,13 @@ func (s *EventStore) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 
 	query := `INSERT INTO events (
 		id, project_id, timestamp, type, severity, service, environment, 
-		trace_id, span_id, parent_span_id, payload, metadata, created_at, incident_id
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		trace_id, span_id, parent_span_id, duration_ms, payload, metadata, created_at, incident_id
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = tx.Exec(query,
 		event.ID, event.ProjectID, event.Timestamp, event.Type,
 		event.Severity, event.Service, event.Environment,
-		event.TraceID, event.SpanID, event.ParentSpanID,
+		event.TraceID, event.SpanID, event.ParentSpanID, event.DurationMs,
 		event.Payload, event.Metadata, event.CreatedAt, incidentID,
 	)
 
@@ -366,7 +375,7 @@ func (s *EventStore) HandleListEvents(w http.ResponseWriter, r *http.Request) {
 
 	query := `
 		SELECT id, project_id, timestamp, type, severity, service, environment, 
-			trace_id, span_id, parent_span_id, payload, metadata, created_at, incident_id
+			trace_id, span_id, parent_span_id, duration_ms, payload, metadata, created_at, incident_id
 		FROM events`
 
 	args := []any{}
@@ -388,11 +397,12 @@ func (s *EventStore) HandleListEvents(w http.ResponseWriter, r *http.Request) {
 		var e models.Event
 		var payload, metadata sql.NullString
 		var severity, service, environment, traceID, spanID, parentSpanID, incidentID sql.NullString
+		var durationMs sql.NullInt64
 
 		if err := rows.Scan(
 			&e.ID, &e.ProjectID, &e.Timestamp, &e.Type,
 			&severity, &service, &environment,
-			&traceID, &spanID, &parentSpanID,
+			&traceID, &spanID, &parentSpanID, &durationMs,
 			&payload, &metadata, &e.CreatedAt, &incidentID,
 		); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -405,6 +415,7 @@ func (s *EventStore) HandleListEvents(w http.ResponseWriter, r *http.Request) {
 		if traceID.Valid { e.TraceID = traceID.String }
 		if spanID.Valid { e.SpanID = spanID.String }
 		if parentSpanID.Valid { e.ParentSpanID = parentSpanID.String }
+		if durationMs.Valid { e.DurationMs = durationMs.Int64 }
 		if payload.Valid { e.Payload = payload.String }
 		if metadata.Valid { e.Metadata = metadata.String }
 		if incidentID.Valid { e.IncidentID = incidentID.String }
