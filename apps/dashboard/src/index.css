@@ -1,0 +1,106 @@
+@import url('https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    background-color: #F8F7FA;
+    font-family: 'Public Sans', ui-sans-serif, system-ui, sans-serif;
+    color: #6D6777;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #DBDADE; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #A8AAAE; }
+}
+
+@layer components {
+  /* Card */
+  .card {
+    background-color: #FFFFFF;
+    border: 1px solid #DBDADE;
+    border-radius: 0.375rem;
+    box-shadow: 0 2px 6px 0 rgba(67, 89, 113, 0.12);
+  }
+
+  /* Sidebar nav item */
+  .sidebar-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.625rem 1rem;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #CFD3EC;
+    transition: background-color 0.15s, color 0.15s;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+  }
+  .sidebar-nav-item:hover {
+    background-color: #363B54;
+    color: #FFFFFF;
+  }
+  .sidebar-nav-item.active {
+    background-color: #7367F0;
+    color: #FFFFFF;
+    box-shadow: 0 2px 6px 0 rgba(115, 103, 240, 0.4);
+  }
+
+  /* Badges */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.625rem;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.5;
+  }
+  .badge-primary   { background-color: #EDE9FF; color: #7367F0; }
+  .badge-success   { background-color: #DFF7EC; color: #28C76F; }
+  .badge-danger    { background-color: #FCEAEA; color: #EA5455; }
+  .badge-warning   { background-color: #FFF3E4; color: #FF9F43; }
+  .badge-info      { background-color: #E0F9FB; color: #00CFE8; }
+  .badge-secondary { background-color: #F1F0F2; color: #A8AAAE; }
+
+  /* Form input */
+  .form-input {
+    width: 100%;
+    background-color: #FFFFFF;
+    border: 1px solid #DBDADE;
+    border-radius: 0.375rem;
+    padding: 0.4375rem 1rem;
+    font-size: 0.875rem;
+    color: #444050;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .form-input::placeholder { color: #A8AAAE; }
+  .form-input:focus {
+    outline: none;
+    border-color: #7367F0;
+    box-shadow: 0 0 0 3px rgba(115, 103, 240, 0.16);
+  }
+
+  /* Primary button */
+  .btn-primary {
+    background-color: #7367F0;
+    color: #FFFFFF;
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: background-color 0.15s;
+    box-shadow: 0 2px 6px 0 rgba(115, 103, 240, 0.4);
+    border: none;
+    cursor: pointer;
+  }
+  .btn-primary:hover { background-color: #5f50ee; }
+}
