@@ -12,6 +12,14 @@ export interface Exception {
     stack_trace: StackFrame[];
 }
 
+export interface Breadcrumb {
+    timestamp: number;
+    category: 'ui.click' | 'navigation' | 'http' | 'console' | 'custom';
+    message: string;
+    level?: 'info' | 'warning' | 'error';
+    data?: Record<string, any>;
+}
+
 export interface Event {
     id: string;
     project_id: string;
@@ -25,6 +33,8 @@ export interface Event {
     parent_span_id?: string;
     payload?: string;
     metadata?: string;
+    session_id?: string;
+    breadcrumbs?: Breadcrumb[];
     exceptions?: Exception[];
 }
 
@@ -39,6 +49,12 @@ export interface DevTraceBrowserOptions {
     environment?: string;
     /** Whether to wrap console.error. Defaults to false. */
     captureConsoleErrors?: boolean;
+    /** Whether to automatically track breadcrumbs (clicks, navigations, fetch calls). Defaults to true. */
+    enableBreadcrumbs?: boolean;
+    /** Max breadcrumbs to buffer before discarding oldest. Defaults to 50. */
+    maxBreadcrumbs?: number;
+    /** Custom session ID. Generated automatically if omitted. */
+    sessionId?: string;
 }
 
 export interface LogOptions {
@@ -47,4 +63,5 @@ export interface LogOptions {
     traceId?: string;
     spanId?: string;
     parentSpanId?: string;
+    sessionId?: string;
 }

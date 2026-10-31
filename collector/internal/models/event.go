@@ -1,22 +1,32 @@
 package models
 
+type Breadcrumb struct {
+	Timestamp int64                  `json:"timestamp"`
+	Category  string                 `json:"category"`
+	Message   string                 `json:"message"`
+	Level     string                 `json:"level,omitempty"`
+	Data      map[string]interface{} `json:"data,omitempty"`
+}
+
 type Event struct {
-	ID           string      `json:"id"`
-	ProjectID    string      `json:"project_id"`
-	Timestamp    int64       `json:"timestamp"`
-	Type         string      `json:"type"`
-	Severity     string      `json:"severity,omitempty"`
-	Service      string      `json:"service,omitempty"`
-	Environment  string      `json:"environment,omitempty"`
-	TraceID      string      `json:"trace_id,omitempty"`
-	SpanID       string      `json:"span_id,omitempty"`
-	ParentSpanID string      `json:"parent_span_id,omitempty"`
-	DurationMs   int64       `json:"duration_ms,omitempty"`
-	Payload      string      `json:"payload,omitempty"`
-	Metadata     string      `json:"metadata,omitempty"`
-	CreatedAt    int64       `json:"created_at"`
-	IncidentID   string      `json:"incident_id,omitempty"`
-	Exceptions   []Exception `json:"exceptions,omitempty"`
+	ID           string        `json:"id"`
+	ProjectID    string        `json:"project_id"`
+	Timestamp    int64         `json:"timestamp"`
+	Type         string        `json:"type"`
+	Severity     string        `json:"severity,omitempty"`
+	Service      string        `json:"service,omitempty"`
+	Environment  string        `json:"environment,omitempty"`
+	TraceID      string        `json:"trace_id,omitempty"`
+	SpanID       string        `json:"span_id,omitempty"`
+	ParentSpanID string        `json:"parent_span_id,omitempty"`
+	DurationMs   int64         `json:"duration_ms,omitempty"`
+	Payload      string        `json:"payload,omitempty"`
+	Metadata     string        `json:"metadata,omitempty"`
+	CreatedAt    int64         `json:"created_at"`
+	IncidentID   string        `json:"incident_id,omitempty"`
+	SessionID    string        `json:"session_id,omitempty"`
+	Breadcrumbs  []Breadcrumb  `json:"breadcrumbs,omitempty"`
+	Exceptions   []Exception   `json:"exceptions,omitempty"`
 }
 
 type Project struct {
@@ -50,4 +60,16 @@ type StackFrame struct {
 	Function string `json:"function"`
 	Line     int    `json:"line"`
 	Column   int    `json:"column"`
+}
+
+type SessionSummary struct {
+	SessionID    string `json:"session_id"`
+	ProjectID    string `json:"project_id"`
+	Service      string `json:"service"`
+	EventCount   int    `json:"event_count"`
+	ErrorCount   int    `json:"error_count"`
+	FirstSeen    int64  `json:"first_seen"`
+	LastSeen     int64  `json:"last_seen"`
+	DurationMs   int64  `json:"duration_ms"`
+	HasReplay    bool   `json:"has_replay"`
 }

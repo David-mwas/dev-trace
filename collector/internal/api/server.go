@@ -20,11 +20,14 @@ func corsMiddleware(next http.Handler) http.Handler {
 }
 
 func NewServer(db *sql.DB) http.Handler {
-	store := &EventStore{DB: db}
+	broadcaster := NewBroadcaster()
+	store := &EventStore{DB: db, Broadcaster: broadcaster}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("POST /api/v1/events", store.HandleCreateEvent)
 	mux.HandleFunc("GET /api/v1/events", store.HandleListEvents)
+	mux.HandleFunc("GET /api/v1/events/stream", store.HandleEventStream)
+	mux.HandleFunc("GET /api/v1/sessions", store.HandleListSessions)
 	mux.HandleFunc("DELETE /api/v1/events", store.HandleClearEvents)
 	mux.HandleFunc("POST /api/v1/projects", store.HandleCreateProject)
 	mux.HandleFunc("GET /api/v1/projects", store.HandleListProjects)

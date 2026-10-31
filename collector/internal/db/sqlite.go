@@ -49,6 +49,8 @@ func InitDB(dbPath string) (*sql.DB, error) {
 	migrations := []string{
 		`ALTER TABLE events ADD COLUMN duration_ms INTEGER`,
 		`ALTER TABLE events ADD COLUMN incident_id TEXT REFERENCES incidents(id)`,
+		`ALTER TABLE events ADD COLUMN session_id TEXT`,
+		`ALTER TABLE events ADD COLUMN breadcrumbs TEXT`,
 	}
 	for _, m := range migrations {
 		// Ignore "duplicate column" errors from SQLite

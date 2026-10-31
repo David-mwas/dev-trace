@@ -6,12 +6,53 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/devtrace/collector/internal/models"
 )
+
+// ── Broadcaster for Real-time SSE ───────────────────────────────────────────
+
+type Broadcaster struct {
+	sync.RWMutex
+	clients map[chan []byte]bool
+}
+
+func NewBroadcaster() *Broadcaster {
+	return &Broadcaster{
+		clients: make(map[chan []byte]bool),
+	}
+}
+
+func (b *Broadcaster) Subscribe() chan []byte {
+	b.Lock()
+	defer b.Unlock()
+	ch := make(chan []byte, 100)
+	b.clients[ch] = true
+	return ch
+}
+
+func (b *Broadcaster) Unsubscribe(ch chan []byte) {
+	b.Lock()
+	defer b.Unlock()
+	if _, ok := b.clients[ch]; ok {
+		delete(b.clients, ch)
+		close(ch)
+	}
+}
+
+func (b *Broadcaster) Broadcast(data []byte) {
+	b.RLock()
+	defer b.RUnlock()
+	for ch := range b.clients {
+		select {
+		case ch <- data:
+		default:
+		}
+	}
+}
 
 // ── Analytics types ───────────────────────────────────────────────────────────
 
@@ -46,6 +87,11 @@ type AnalyticsData struct {
 	Trends   map[string]*TrendStat  `json:"trends"`
 }
 
+type EventStore struct {
+	DB          *sql.DB
+	Broadcaster *Broadcaster
+}
+
 func (s *EventStore) HandleAnalytics(w http.ResponseWriter, r *http.Request) {
 	data := &AnalyticsData{
 		Hourly:   []HourlyPoint{},
@@ -54,12 +100,10 @@ func (s *EventStore) HandleAnalytics(w http.ResponseWriter, r *http.Request) {
 		Trends:   map[string]*TrendStat{},
 	}
 
-	// Init heatmap hours
 	for i := 0; i < 24; i++ {
 		data.Heatmap[i] = HeatCell{Hour: i}
 	}
 
-	// ── Hourly breakdown (last 24 hours) ──────────────────────────────────────
 	since := time.Now().Add(-24 * time.Hour).UnixMilli()
 	rows, err := s.DB.Query(`
 		SELECT 
@@ -87,15 +131,11 @@ func (s *EventStore) HandleAnalytics(w http.ResponseWriter, r *http.Request) {
 			case "trace": hourMap[hr].Traces += cnt
 			}
 		}
-		if err := rows.Err(); err != nil {
-			log.Printf("Error iterating over hourly rows: %v", err)
-		}
 		for _, pt := range hourMap {
 			data.Hourly = append(data.Hourly, *pt)
 		}
 	}
 
-	// ── Events by service ─────────────────────────────────────────────────────
 	svcRows, err := s.DB.Query(`
 		SELECT COALESCE(service, 'unknown'), COUNT(*) as cnt
 		FROM events
@@ -112,12 +152,8 @@ func (s *EventStore) HandleAnalytics(w http.ResponseWriter, r *http.Request) {
 				data.Services = append(data.Services, sc)
 			}
 		}
-		if err := svcRows.Err(); err != nil {
-			log.Printf("Error iterating over service rows: %v", err)
-		}
 	}
 
-	// ── Heatmap (all time, by hour of day) ───────────────────────────────────
 	hmRows, err := s.DB.Query(`
 		SELECT 
 			CAST(strftime('%H', datetime(timestamp/1000, 'unixepoch')) AS INTEGER) as hr,
@@ -133,12 +169,8 @@ func (s *EventStore) HandleAnalytics(w http.ResponseWriter, r *http.Request) {
 				data.Heatmap[hr].Count = cnt
 			}
 		}
-		if err := hmRows.Err(); err != nil {
-			log.Printf("Error iterating over heatmap rows: %v", err)
-		}
 	}
 
-	// ── Trend stats ───────────────────────────────────────────────────────────
 	nowMs := time.Now().UnixMilli()
 	thisHourStart := time.Now().Truncate(time.Hour).UnixMilli()
 	prevHourStart := thisHourStart - int64(time.Hour.Milliseconds())
@@ -159,7 +191,6 @@ func (s *EventStore) HandleAnalytics(w http.ResponseWriter, r *http.Request) {
 		data.Trends[typ] = &TrendStat{Total: total, Current: curr, Previous: prev, Delta: delta}
 	}
 
-	// Total events trend
 	var totalAll, totalCurr, totalPrev int
 	s.DB.QueryRow(`SELECT COUNT(*) FROM events`).Scan(&totalAll) //nolint
 	s.DB.QueryRow(`SELECT COUNT(*) FROM events WHERE timestamp >= ? AND timestamp < ?`, thisHourStart, nowMs).Scan(&totalCurr) //nolint
@@ -170,13 +201,6 @@ func (s *EventStore) HandleAnalytics(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(data)
-
-	_ = log.Writer() // suppress unused import warning
-}
-
-
-type EventStore struct {
-	DB *sql.DB
 }
 
 func (s *EventStore) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
@@ -238,16 +262,31 @@ func (s *EventStore) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	// -------------------------------
 
+	var breadcrumbsJSON sql.NullString
+	if len(event.Breadcrumbs) > 0 {
+		if b, err := json.Marshal(event.Breadcrumbs); err == nil {
+			breadcrumbsJSON.String = string(b)
+			breadcrumbsJSON.Valid = true
+		}
+	}
+
+	var sessionID sql.NullString
+	if event.SessionID != "" {
+		sessionID.String = event.SessionID
+		sessionID.Valid = true
+	}
+
 	query := `INSERT INTO events (
 		id, project_id, timestamp, type, severity, service, environment, 
-		trace_id, span_id, parent_span_id, duration_ms, payload, metadata, created_at, incident_id
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		trace_id, span_id, parent_span_id, duration_ms, payload, metadata, created_at, incident_id, session_id, breadcrumbs
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err = tx.Exec(query,
 		event.ID, event.ProjectID, event.Timestamp, event.Type,
 		event.Severity, event.Service, event.Environment,
 		event.TraceID, event.SpanID, event.ParentSpanID, event.DurationMs,
 		event.Payload, event.Metadata, event.CreatedAt, incidentID,
+		sessionID, breadcrumbsJSON,
 	)
 
 	if err != nil {
@@ -270,7 +309,116 @@ func (s *EventStore) HandleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Broadcast to SSE clients for instant live feed
+	if s.Broadcaster != nil {
+		if eventBytes, err := json.Marshal(event); err == nil {
+			s.Broadcaster.Broadcast(eventBytes)
+		}
+	}
+
 	w.WriteHeader(http.StatusCreated)
+}
+
+func (s *EventStore) HandleEventStream(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	if s.Broadcaster == nil {
+		s.Broadcaster = NewBroadcaster()
+	}
+
+	ch := s.Broadcaster.Subscribe()
+	defer s.Broadcaster.Unsubscribe(ch)
+
+	// Initial heartbeat
+	fmt.Fprintf(w, "event: ping\ndata: {}\n\n")
+	flusher.Flush()
+
+	ctx := r.Context()
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			fmt.Fprintf(w, "event: ping\ndata: {}\n\n")
+			flusher.Flush()
+		case data, ok := <-ch:
+			if !ok {
+				return
+			}
+			fmt.Fprintf(w, "event: event\ndata: %s\n\n", string(data))
+			flusher.Flush()
+		}
+	}
+}
+
+func (s *EventStore) HandleListSessions(w http.ResponseWriter, r *http.Request) {
+	query := `
+		SELECT 
+			session_id,
+			COALESCE(project_id, '') as project_id,
+			COALESCE(service, 'unknown') as service,
+			COUNT(*) as event_count,
+			SUM(CASE WHEN type = 'error' THEN 1 ELSE 0 END) as error_count,
+			MIN(timestamp) as first_seen,
+			MAX(timestamp) as last_seen,
+			MAX(CASE WHEN (breadcrumbs IS NOT NULL AND breadcrumbs != '' AND breadcrumbs != '[]') OR type = 'error' THEN 1 ELSE 0 END) as has_replay
+		FROM events
+		WHERE session_id IS NOT NULL AND session_id != ''
+		GROUP BY session_id
+		ORDER BY last_seen DESC
+		LIMIT 50
+	`
+
+	rows, err := s.DB.Query(query)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var sessions []models.SessionSummary
+	for rows.Next() {
+		var sm models.SessionSummary
+		var hasReplayInt int
+		if err := rows.Scan(
+			&sm.SessionID,
+			&sm.ProjectID,
+			&sm.Service,
+			&sm.EventCount,
+			&sm.ErrorCount,
+			&sm.FirstSeen,
+			&sm.LastSeen,
+			&hasReplayInt,
+		); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		sm.HasReplay = hasReplayInt > 0
+		sm.DurationMs = sm.LastSeen - sm.FirstSeen
+		if sm.DurationMs < 0 {
+			sm.DurationMs = 0
+		}
+		sessions = append(sessions, sm)
+	}
+
+	if sessions == nil {
+		sessions = []models.SessionSummary{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(sessions)
 }
 
 func (s *EventStore) HandleCreateProject(w http.ResponseWriter, r *http.Request) {
@@ -314,12 +462,6 @@ func (s *EventStore) HandleListProjects(w http.ResponseWriter, r *http.Request) 
 		projects = append(projects, p)
 	}
 
-	if err := rows.Err(); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Return empty array instead of null
 	if projects == nil {
 		projects = []models.Project{}
 	}
@@ -369,21 +511,46 @@ func (s *EventStore) HandleClearEvents(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-
 func (s *EventStore) HandleListEvents(w http.ResponseWriter, r *http.Request) {
 	projectID := r.URL.Query().Get("project_id")
+	sessionIDParam := r.URL.Query().Get("session_id")
+	eventType := r.URL.Query().Get("type")
 
 	query := `
 		SELECT id, project_id, timestamp, type, severity, service, environment, 
-			trace_id, span_id, parent_span_id, duration_ms, payload, metadata, created_at, incident_id
+			trace_id, span_id, parent_span_id, duration_ms, payload, metadata, created_at, incident_id,
+			session_id, breadcrumbs
 		FROM events`
 
+	whereClauses := []string{}
 	args := []any{}
+
 	if projectID != "" {
-		query += ` WHERE project_id = ?`
+		whereClauses = append(whereClauses, "project_id = ?")
 		args = append(args, projectID)
 	}
-	query += ` ORDER BY timestamp DESC LIMIT 100`
+	if sessionIDParam != "" {
+		whereClauses = append(whereClauses, "session_id = ?")
+		args = append(args, sessionIDParam)
+	}
+	if eventType != "" {
+		whereClauses = append(whereClauses, "type = ?")
+		args = append(args, eventType)
+	}
+
+	if len(whereClauses) > 0 {
+		query += " WHERE " + whereClauses[0]
+		for i := 1; i < len(whereClauses); i++ {
+			query += " AND " + whereClauses[i]
+		}
+	}
+
+	// For session replay, chronological order (ASC) is best; otherwise latest first (DESC)
+	if sessionIDParam != "" {
+		query += ` ORDER BY timestamp ASC LIMIT 200`
+	} else {
+		query += ` ORDER BY timestamp DESC LIMIT 100`
+	}
 
 	rows, err := s.DB.Query(query, args...)
 	if err != nil {
@@ -396,7 +563,7 @@ func (s *EventStore) HandleListEvents(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var e models.Event
 		var payload, metadata sql.NullString
-		var severity, service, environment, traceID, spanID, parentSpanID, incidentID sql.NullString
+		var severity, service, environment, traceID, spanID, parentSpanID, incidentID, sessionID, breadcrumbs sql.NullString
 		var durationMs sql.NullInt64
 
 		if err := rows.Scan(
@@ -404,6 +571,7 @@ func (s *EventStore) HandleListEvents(w http.ResponseWriter, r *http.Request) {
 			&severity, &service, &environment,
 			&traceID, &spanID, &parentSpanID, &durationMs,
 			&payload, &metadata, &e.CreatedAt, &incidentID,
+			&sessionID, &breadcrumbs,
 		); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -419,6 +587,14 @@ func (s *EventStore) HandleListEvents(w http.ResponseWriter, r *http.Request) {
 		if payload.Valid { e.Payload = payload.String }
 		if metadata.Valid { e.Metadata = metadata.String }
 		if incidentID.Valid { e.IncidentID = incidentID.String }
+		if sessionID.Valid { e.SessionID = sessionID.String }
+
+		if breadcrumbs.Valid && breadcrumbs.String != "" {
+			var bcList []models.Breadcrumb
+			if err := json.Unmarshal([]byte(breadcrumbs.String), &bcList); err == nil {
+				e.Breadcrumbs = bcList
+			}
+		}
 
 		events = append(events, e)
 	}
@@ -449,11 +625,6 @@ func (s *EventStore) HandleListEvents(w http.ResponseWriter, r *http.Request) {
 				exceptions = append(exceptions, exc)
 			}
 		}
-
-		if err := excRows.Err(); err != nil {
-			log.Printf("Error iterating exceptions for event %s: %v", events[i].ID, err)
-		}
-
 		excRows.Close()
 		events[i].Exceptions = exceptions
 	}

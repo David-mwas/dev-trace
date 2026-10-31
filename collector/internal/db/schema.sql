@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS events (
     metadata TEXT,
     created_at INTEGER NOT NULL,
     incident_id TEXT,
+    session_id TEXT,
+    breadcrumbs TEXT,
     FOREIGN KEY(project_id) REFERENCES projects(id),
     FOREIGN KEY(incident_id) REFERENCES incidents(id)
 );
